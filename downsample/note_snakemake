@@ -1,0 +1,15 @@
+Make sure you are using snakemake >= v7.0.0.
+
+Then set --cluster-cancel qdel or--cluster-cancel scancel depending on whether the job scheduling system is PBS or SLURM.
+
+You can also set this in the config.yaml as cluster-cancel: qdel etc.
+
+If you use SLURM, you must add the --parsable flag to the sbatch command passed via --cluster.
+
+This is an example config.yaml for SLURM:
+
+cluster: "sbatch --time={cluster.time} --cpus-per-task={cluster.n} --parsable"
+cluster-cancel: scancel
+
+
+https://stackoverflow.com/questions/73978737/how-do-i-use-snakemake-cluster-cancel
