@@ -1,0 +1,125 @@
+# HMH-COV2 Analysis Pipeline Customized for tung-nguyen_01
+# Usage: snakemake -j200 -c4 --rerun-incomplete --use-envmodules --latency-wait 300 --cluster "sbatch --cpus-per-task=4 --chdir ./stderrout/"
+# 
+# Swaps out trimmomatic for fastp
+# 
+# Author: Matthew Chung < chungm6@nih.gov >
+# TUNG NGUYEN EDITS TO STOP RM DUP
+# Laboratory of Parasitic Diseases, Systems Genomics Section, NIAID, NIH
+# MPOX
+VERSION = 1.01
+
+configfile: "config.yaml"
+
+import re
+SAMPLE, = glob_wildcards(config["params"]["reads"] + "/{sample}.bam")
+
+print(SAMPLE)
+
+wildcard_constraints:
+    sample='|'.join([re.escape(x) for x in SAMPLE]),
+    
+rule all:
+    input:
+        expand(config["params"]["output"] + "ivar_consensus/{sample}.ivar.fasta",sample=SAMPLE),
+    	expand(config["params"]["output"] + "ivar_consensus/{sample}.ivar.fasta",sample=SAMPLE),
+    	expand(config["params"]["output"] + "timo/fullvarlist/{sample}." + config["timo_params"]["strain"] + "." + config["timo_params"]["contig"] + "." + config["params"]["freq_cutoff"] + ".snplist.vcf", sample = SAMPLE)
+
+
+rule ivar_consensus:
+    input:
+        ref=config["params"]["ref"],
+        bam=config["params"]["reads"] + "{sample}.bam"
+    params:
+        sample="{sample}",
+        cov_cutoff=config["params"]["cov_cutoff"],
+        freq_cutoff=config["params"]["freq_cutoff"],
+        output_prefix=config["params"]["output"] + "ivar_consensus/{sample}.ivar"
+    output:
+        fna=config["params"]["output"] + "ivar_consensus/{sample}.ivar.fasta"
+    group: "ivar"
+    threads: 4
+    envmodules:
+        "ivar",
+        "samtools"
+    shell:
+        """
+        samtools mpileup \
+            -aa -A \
+            -d 1000000 {input.bam} | ivar variants \
+            -p {params.output_prefix} -q 20 -m {params.cov_cutoff} -t {params.freq_cutoff} -r {input.ref}
+
+        samtools mpileup \
+            -aa -A \
+            -d 1000000 {input.bam} | ivar consensus \
+                -p {params.output_prefix}
+
+        mv {params.output_prefix}.fa {output.fna}
+
+        sed -i "s/>.*/>{params.sample}/g" {output.fna}
+        """
+
+rule timo:
+    input:
+        ref=config["params"]["ref"],
+        bam=config["params"]["reads"] + "{sample}.bam"
+    params:
+        sample="{sample}",
+        cov_cutoff=config["params"]["cov_cutoff"],
+        freq_cutoff=config["params"]["freq_cutoff"],
+        strain=config["timo_params"]["strain"],
+        contig=config["timo_params"]["contig"],
+        output_dir=config["params"]["output"]
+    output:
+        snplist_csv=config["params"]["output"] + "timo/fullvarlist/{sample}." + config["timo_params"]["strain"] + "." + config["timo_params"]["contig"] + ".Updated." + config["params"]["freq_cutoff"] + ".snplist.csv",
+        cov = config["params"]["output"] + "timo/coverage/{sample}." + config["timo_params"]["strain"] + ".coverage.csv",
+        fna=config["params"]["output"] + "timo/consensus/{sample}." + config["params"]["cov_cutoff"] + "." + config["timo_params"]["strain"] + "." + config["timo_params"]["contig"] + ".fasta",
+        vcf=config["params"]["output"] + "timo/fullvarlist/{sample}." + config["timo_params"]["strain"] + "." + config["timo_params"]["contig"] + "." + config["params"]["freq_cutoff"] + ".snplist.vcf"
+    group: "timo"
+    threads: 1
+    envmodules:
+        "python/3.8"
+    shell:
+        """
+        mkdir -p {params.output_dir}/timo/fullvarlist/
+        mkdir -p {params.output_dir}/timo/aasnplist
+
+        python3 /data/SGSlab/mchung/pipelines/covid_snakemake/timo/timo.v1.py \
+            --strain {params.strain} \
+            --infile {input.bam} \
+            --ref {input.ref} \
+            -o {params.output_dir}/timo/fullvarlist/{params.sample}/ \
+            --covercutoff {params.cov_cutoff} \
+            --cutoff {params.freq_cutoff}
+
+        mkdir -p {params.output_dir}/timo/consensus/{params.sample}/
+        mkdir -p {params.output_dir}/timo/coverage/{params.sample}/
+
+        python3 /data/SGSlab/mchung/pipelines/covid_snakemake/timo/ConsensusFasta.Coverage.v4.py \
+            --ref {input.ref} \
+            --cov {params.cov_cutoff} \
+            --minfreq {params.freq_cutoff} \
+            --var {params.output_dir}/timo/fullvarlist/{params.sample}/ \
+            --strain {params.strain} \
+            --savecov {params.output_dir}/timo/coverage/{params.sample}/ \
+            --savecon {params.output_dir}/timo/consensus/{params.sample}/
+
+        mkdir -p {params.output_dir}/timo/aasnplist/{params.sample}/
+
+        rm -r {params.output_dir}/timo/consensus/{params.sample}/{params.contig}.{params.cov_cutoff}.{params.strain}.fasta
+
+        mv {params.output_dir}/timo/aasnplist/{params.sample}/* {params.output_dir}/timo/aasnplist/
+        mv {params.output_dir}/timo/consensus/{params.sample}/* {params.output_dir}/timo/consensus/
+        mv {params.output_dir}/timo/coverage/{params.sample}/{params.strain}.coverage.csv {output.cov}
+        mv {params.output_dir}/timo/fullvarlist/{params.sample}/* {params.output_dir}/timo/fullvarlist/
+
+        rm -r {params.output_dir}/timo/aasnplist/{params.sample}/
+        rm -r {params.output_dir}/timo/consensus/{params.sample}/
+        rm -r {params.output_dir}/timo/coverage/{params.sample}/
+        rm -r {params.output_dir}/timo/fullvarlist/{params.sample}/
+        
+        python3 /data/SGSlab/mchung/pipelines/covid_snakemake/timo/parse_tims_output.v2.py \
+            -r {input.ref} \
+            -v {params.output_dir}/timo/fullvarlist/{params.sample}.{params.strain}.{params.contig}.{params.freq_cutoff}.snplist.csv \
+            -o {params.output_dir}/timo/fullvarlist/{params.sample}.{params.strain}.{params.contig}.{params.freq_cutoff}.snplist.vcf
+        """
