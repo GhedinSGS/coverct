@@ -1,5 +1,5 @@
 library(pacman)
-p_load(tidyverse, duckdb, dbplyr)
+p_load(tidyverse, duckdb, dbplyr, ranger)
 
 cs = function(fraction_below) {
   return(log2(fraction_below + 1e-4))
