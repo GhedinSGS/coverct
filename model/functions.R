@@ -139,6 +139,65 @@ evaluate_ranger = function(rf_model, test_data, f1_threshold = 22, model_type = 
   return(out_list)
 }
 
+
+# Function to calculate R-squared and Adjusted R-squared
+calculate_r_squared <- function(actuals, predictions, num_predictors) {
+  sst <- sum((actuals - mean(actuals))^2)
+  ssr <- sum((actuals - predictions)^2)
+  r_squared <- 1 - ssr / sst
+  n <- length(actuals)
+  adjusted_r_squared <- 1 - ((1 - r_squared) * (n - 1) / (n - num_predictors - 1))
+  return(list(r_squared = r_squared, adjusted_r_squared = adjusted_r_squared))
+}
+
+calculate_mae_mape <- function(actuals, predictions) {
+  # Calculate Mean Absolute Error (MAE)
+  mae <- mean(abs(actuals - predictions))
+  
+  # Calculate Mean Absolute Percentage Error (MAPE)
+  mape <- mean(abs((actuals - predictions) / actuals))
+  
+  # Return both MAE and MAPE
+  return(list(MAE = mae, MAPE = mape))
+}
+
+calculate_classification_metrics <- function(actuals, predictions, threshold) {
+  # Convert continuous predictions into binary class based on the threshold
+  predicted_classes <- ifelse(predictions < threshold, 1L, 0L)
+  actual_classes <- ifelse(actuals < threshold, 1L, 0L)
+  
+  # Calculate True Positives (TP), False Positives (FP), True Negatives (TN), and False Negatives (FN)
+  TP <- sum(predicted_classes == 1 & actual_classes == 1)
+  FP <- sum(predicted_classes == 1 & actual_classes == 0)
+  TN <- sum(predicted_classes == 0 & actual_classes == 0)
+  FN <- sum(predicted_classes == 0 & actual_classes == 1)
+  
+  # Calculate Precision and Recall
+  precision <- TP / (TP + FP)
+  recall <- TP / (TP + FN)
+  
+  # Avoid division by zero
+  if (is.nan(precision) | is.nan(recall)) {
+    precision <- 0
+    recall <- 0
+  }
+  # Calculate F1 Score
+  f1_score <- 
+    ifelse((precision + recall) == 0, 0, 2 * (precision * recall) / 
+             (precision + recall))
+  # Return a list with all metrics
+  return(list(precision = precision, recall = recall, f1_score = f1_score))
+}
+
+
+make_predictions <- function(model, test_data, model_type = "lm") {
+  if (model_type == "lm") {
+    return(predict(model, newdata = test_data))
+  } else {
+    return(predict(model, data = test_data)$predictions)
+  }
+}
+
 summarize_replicate_samples = function(summarized_patient_true_replicate_raw) {
   tally_variable_maf_counts_1 <- summarized_patient_true_replicate_raw %>%
     group_by(PatientID) %>%
